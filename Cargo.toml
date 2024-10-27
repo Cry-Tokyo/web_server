@@ -1,0 +1,17 @@
+[package]
+name = "web-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio-rustls = "0.26.0"
+rustls-pki-types = "1.9.0"
+hyper = { version = "1.4.1", features = ["server"] }
+http-body-util = { version = "0.1.0" }
+hyper-util = { version = "0.1", default-features = false, features = [
+    "server-auto",
+    "tokio",
+] }
+rustls-pemfile = "2"
+tokio = { version = "1.0", features = ["full"] }
+http = "1.1.0"
