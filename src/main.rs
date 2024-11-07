@@ -1,4 +1,4 @@
-use http::{Method, Request, Response, StatusCode, Version};
+use http::{Method, Request, Response, StatusCode, Uri, Version};
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::service::service_fn;
@@ -10,15 +10,15 @@ use rustls_pemfile::{certs, private_key};
 use std::io::{self, BufReader};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use tokio::{fs, net::TcpListener};
 use tokio_rustls::{
     rustls::{pki_types::CertificateDer, ServerConfig},
     TlsAcceptor,
 };
 
-async fn get_resource(uri: &'static str) -> io::Result<Full<Bytes>> {
-    match fs::read(uri).await {
+async fn get_resource(uri: &Uri) -> io::Result<Full<Bytes>> {
+    match fs::read(uri.path()).await {
         Ok(o) => Ok(Full::from(o)),
         Err(e) => Err(e),
     }
@@ -26,37 +26,42 @@ async fn get_resource(uri: &'static str) -> io::Result<Full<Bytes>> {
 async fn tunnel() {}
 
 async fn handle_request(req: Request<Incoming>) -> Result<Response<Full<Bytes>>, http::Error> {
-    let mut res = Response::builder();
-    match req.method() {
-        &Method::POST => {
-            res.status(StatusCode::OK);
-            res.version(Version::HTTP_3);
-            //res.header(key, value);
-            return res.body(());
-        }
-        &Method::GET => match get_resource(req.uri().path()).await {
-            Ok(o) => {
-                res.status(StatusCode::OK);
-                res.version(Version::HTTP_3);
-                //res.header(key, value);
-                return res.body(o);
-            }
-            Err(e) => {
-                res.status(StatusCode::NOT_FOUND);
-                res.version(Version::HTTP_3);
-                return res.body(_404);
-            }
+    match *req.method() {
+        Method::POST => Response::builder()
+            .status(StatusCode::OK)
+            .version(Version::HTTP_3)
+            .body(Full::from(_404)),
+        Method::GET => match get_resource(req.uri()).await {
+            Ok(o) => Response::builder()
+                .status(StatusCode::OK)
+                .version(Version::HTTP_3)
+                .body(o),
+            Err(e) => Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .version(Version::HTTP_3)
+                .body(Full::from(_404)),
         },
-        &Method::CONNECT => {
-            res.status(StatusCode::OK);
-            res.version(Version::HTTP_3);
-            //res.header(key, value);
-            return res.body(o);
-        }
+        Method::CONNECT => Response::builder()
+            .status(StatusCode::OK)
+            .version(Version::HTTP_3)
+            .body(Full::from(_404)),
+
+        _ => Response::builder().body(Full::from(_404)),
     }
 }
 
-//const _404 = [];
+fn load_server() -> Result<(), Box<dyn std::error::Error>> {
+    let addr: SocketAddr = "[::]:4433".parse()?;
+
+    Ok(())
+}
+const _404: Bytes = Bytes::from_static(&[
+    60, 33, 100, 111, 99, 116, 121, 112, 101, 32, 104, 116, 109, 108, 62, 10, 60, 104, 116, 109,
+    108, 62, 10, 32, 32, 32, 32, 60, 104, 101, 97, 100, 62, 60, 47, 104, 101, 97, 100, 62, 10, 32,
+    32, 32, 32, 60, 98, 111, 100, 121, 62, 10, 32, 32, 32, 32, 32, 32, 32, 32, 60, 104, 49, 62, 60,
+    98, 62, 78, 79, 84, 32, 70, 79, 85, 78, 68, 60, 47, 98, 62, 60, 47, 104, 49, 62, 10, 32, 32,
+    32, 32, 60, 47, 98, 111, 100, 121, 62, 10, 60, 47, 104, 116, 109, 108, 62, 10,
+]);
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = "[::]:4433".parse()?;
@@ -83,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let acceptor = acceptor.clone();
         tokio::spawn(async move {
             let stream = acceptor.accept(stream).await.unwrap();
+
             if let Err(err) = Builder::new(TokioExecutor::new())
                 .serve_connection(TokioIo::new(stream), service)
                 .await
